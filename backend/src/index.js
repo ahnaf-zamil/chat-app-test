@@ -35,7 +35,16 @@ io.on("connection", (socket) => {
 // REST methods
 app.post("/create_session", async (req, res) => {
   const s = await services.createNewSession(req);
-  res.send({ id: s.id });
+  return res.send({ id: s.id });
+});
+
+app.post("/get_agent_credentials", async (req, res) => {
+  const a = await services.getAgent(req);
+  if (!a) {
+    res.status(401);
+    return res.send({ error: "Invalid agent credentials" });
+  }
+  return res.send({ id: a.id });
 });
 
 server.listen(5000, async () => {

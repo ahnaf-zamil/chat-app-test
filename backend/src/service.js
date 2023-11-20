@@ -1,8 +1,13 @@
 const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
-const { SessionModel, MessagesModel } = require("./model");
+const {
+  SessionModel,
+  MessagesModel,
+  AgentsModel,
+  AgentsSessionRelation,
+} = require("./model");
 const { getConfig } = require("./util");
-const { redirectMsgToAgent } = require("./agent");
+const { redirectMsgToAgent, assignAgentToSession } = require("./agent");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_KEY,
@@ -29,15 +34,17 @@ const sendAIMessage = async (content, socket) => {
   socket.to(`session:${socket.sessionId}`).emit("agent_reply", resp);
 };
 
-const timeoutSession = async (socket) => {
+const timeoutSession = async (sessionId) => {
   const existingSession = await SessionModel.findOne({
-    where: { id: socket.sessionId },
+    where: { id: sessionId },
   });
   const expiry = parseInt(existingSession.expiresAt);
   if (new Date().getTime() >= expiry) {
-    // Session has expired
+    // Session has expired, destroy agent session and session objects from DB
+    await AgentsSessionRelation.destroy({
+      where: { sessionId: existingSession.id },
+    });
     await existingSession.destroy();
-    socket.to(`session:${socket.sessionId}`).emit("session_timeout");
   }
 };
 
@@ -74,11 +81,18 @@ module.exports = {
       // Redirect to live agent
       await redirectMsgToAgent(content, socket);
     } else {
+      // Even if AI is responding to message, assign an agent to this session just to make sure they can respond back when online
+      await assignAgentToSession(socket);
       await sendAIMessage(content, socket);
     }
 
-    // After sending msg, wait for session timeout
-    setTimeout(() => timeoutSession(socket), sessionTimeoutMiliseconds);
+    setTimeout(
+      () =>
+        timeoutSession(socket.sessionId).then(() =>
+          socket.to(`session:${socket.sessionId}`).emit("session_timeout")
+        ),
+      sessionTimeoutMiliseconds
+    );
   },
   createNewSession: async (req) => {
     const newSession = SessionModel.build({
@@ -88,6 +102,15 @@ module.exports = {
       expiresAt: new Date().getTime() + sessionTimeoutMiliseconds, // 5 minutes from creation
     });
     await newSession.save();
+
+    // Time out session if user doesnt send msg, just to save resources
+    setTimeout(() => timeoutSession(newSession.id), sessionTimeoutMiliseconds);
     return newSession;
+  },
+  getAgent: async (req) => {
+    const agent = await AgentsModel.findOne({
+      where: { username: req.body.username, password: req.body.password },
+    });
+    return agent;
   },
 };
