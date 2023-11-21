@@ -30,7 +30,10 @@ export const ChatBox: React.FC<ChatboxProps> = ({
   const [sessionClosed, setSessionClosed] = useState<boolean>(false);
 
   useEffect(() => {
-    const intervalId = setInterval(async () => {
+    let intervalId: number;
+    console.log("ok");
+    const checkForSession = async () => {
+      setSessionClosed(false);
       if (selectedSessionId) {
         // Checking to see if session is open or not
         const resp = await axios.get(
@@ -41,7 +44,11 @@ export const ChatBox: React.FC<ChatboxProps> = ({
           clearInterval(intervalId);
         }
       }
-    }, 10000);
+    };
+    checkForSession();
+    intervalId = setInterval(checkForSession, 10000);
+
+    // Clear up
     return () => clearInterval(intervalId);
   }, [selectedSessionId]);
 

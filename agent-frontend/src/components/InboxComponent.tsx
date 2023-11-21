@@ -1,7 +1,3 @@
-import axios from "axios";
-import { useState, useEffect } from "react";
-import config from "../config";
-
 export interface InboxInterface {
   createdAt: string;
   name: string;
