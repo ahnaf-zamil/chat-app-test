@@ -14,7 +14,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_KEY,
 });
 
-const sessionTimeoutMiliseconds = 1000 * 60 * 30; // 5 mins
+const sessionTimeoutMiliseconds = 1000 * 60 * 5; // 5 mins
 
 const sendAIMessage = async (content, socket) => {
   const gptResp = await openai.chat.completions.create({
