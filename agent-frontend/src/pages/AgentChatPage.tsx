@@ -1,30 +1,82 @@
 import React, { useEffect, useState } from "react";
-import { redirect, useNavigate } from "react-router-dom";
-import { useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { SettingsModalComponent } from "../components/SettingsModalComponent";
-
-const UserList: React.FC = () => {
-  return <></>;
-};
-
-const ChatBox: React.FC = () => {
-  return <></>;
-};
+import config from "../config";
+import io from "socket.io-client";
+import { IChatMsg, ChatBox } from "../components/ChatboxComponent";
+import { Inbox, InboxInterface } from "../components/InboxComponent";
+import axios from "axios";
 
 export const AgentChatPage: React.FC = () => {
-  const location = useLocation();
+  const agentId = localStorage.getItem("agentId");
   const navigate = useNavigate();
+  const [socket, setSocket] = useState<any>();
   const [isSettingsOpen, setSettingsOpen] = useState<boolean>(false);
+  const [isConnected, setConnected] = useState<boolean>(false);
+
+  const [selectedSessionId, setSelectedSessionId] = useState<string>();
+
+  const [chatMsg, setChatMsg] = useState<IChatMsg>({});
+  const [chats, setChats] = useState<Array<InboxInterface>>([]);
 
   useEffect(() => {
-    const agentId = localStorage.getItem("agentId");
+    async function getInbox() {
+      const resp = await axios.post(config.BACKEND_URL + "/get_agent_inbox", {
+        agentId: localStorage.getItem("agentId")!,
+      });
+
+      setChats(resp.data);
+    }
+    getInbox();
+  }, []);
+
+  useEffect(() => {
     if (!agentId) {
       navigate("/");
     }
+    if (!socket) {
+      const sock = io(config.BACKEND_URL, {
+        query: { agentId: agentId },
+      });
+      setSocket(sock);
 
-    (async () => {
-      // Fetch session information and chat content
-    })();
+      sock.on("connect", () => {
+        console.log("Connected");
+        setConnected(true);
+      });
+
+      sock.on("user_msg", (data) => {
+        setChatMsg((prev) => {
+          if (prev[data.sessionId]) {
+            let newArr = [...prev[data.sessionId]];
+            newArr.unshift({
+              id: 0,
+              content: data.content,
+              creator: data.creator,
+            });
+
+            return {
+              ...prev,
+              [data.sessionId]: newArr,
+            };
+          }
+          return prev;
+        });
+      });
+
+      sock.on("session_created", (session) => {
+        setChats((prev) => {
+          let newArr = [...prev];
+          newArr.unshift(session);
+          return newArr;
+        });
+      });
+
+      return () => {
+        sock.off("connect");
+        sock.off("user_msg");
+      };
+    }
   }, []);
 
   return (
@@ -34,7 +86,10 @@ export const AgentChatPage: React.FC = () => {
       )}
       <div className="container mx-auto xl:w-[65%] bg-gray-200 h-full">
         <div className="py-6 px-10 bg-gray-600 flex justify-between">
-          <h1 className=" text-xl font-semibold">Customers Chat Portal</h1>
+          <div>
+            <h1 className=" text-xl font-semibold">Customers Chat Portal</h1>
+            <p>{isConnected ? "Connected" : "Connecting..."}</p>
+          </div>
           <button
             className="bg-gray-400 shadow-xl"
             onClick={() => setSettingsOpen(true)}
@@ -43,11 +98,24 @@ export const AgentChatPage: React.FC = () => {
           </button>
         </div>
         <div className="grid grid-cols-8 h-full">
-          <div className="h-full bg-green-300 col-span-2">
-            <UserList />
+          <div className="h-full bg-white text-gray-600 col-span-2 border divide-x border-black">
+            <Inbox
+              chats={chats}
+              onSessionSelect={(sessionId) => setSelectedSessionId(sessionId)}
+              selectedSessionId={selectedSessionId}
+            />
           </div>
-          <div className="h-full bg-red-300 col-span-6 flex flex-col">
-            <ChatBox />
+          <div className="h-full bg-gray-200 text-black col-span-6 flex flex-col ">
+            {socket && (
+              <ChatBox
+                selectedSessionId={selectedSessionId}
+                setChatSessionValue={(msg, sessionId) => {
+                  setChatMsg({ ...chatMsg, [sessionId]: msg });
+                }}
+                chatMsg={chatMsg}
+                socket={socket}
+              />
+            )}
           </div>
         </div>
       </div>

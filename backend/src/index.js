@@ -1,54 +1,41 @@
 require("dotenv").config();
-
-const express = require("express");
-const cors = require("cors");
-
-const app = express();
-app.use(cors());
-
-const server = require("http").createServer(app);
-const io = require("socket.io")(server, {
-  cors: {
-    origin: "*",
-  },
-});
+const { server, io, app } = require("./socket");
 
 const { sequelize } = require("./model");
+const routes = require("./routes");
 const services = require("./service");
 
-app.use(express.json());
+const PORT = process.env.PORT || 5000;
 
 // Socket methods
 io.on("connection", (socket) => {
   // Adding client socket to room
   const sessionId = socket.handshake.query["sessionId"];
-  socket.sessionId = sessionId;
-  socket.server_io = io;
-  socket.join(`session:${sessionId}`);
+  if (sessionId) {
+    socket.on("user_msg", (content) => {
+      // Handle user message send
+      services.handleNewUserMessage(content, socket);
+    });
 
-  socket.on("msg", (content) => {
-    // Handle message send
-    services.handleNewMessage(content, socket);
-  });
-});
+    socket.sessionId = sessionId;
+    socket.join(`session:${sessionId}`);
+  } else {
+    // If connecting socket is an agent, add it to agent room so it can receive user messages
+    const agentId = socket.handshake.query["agentId"];
 
-// REST methods
-app.post("/create_session", async (req, res) => {
-  const s = await services.createNewSession(req);
-  return res.send({ id: s.id });
-});
-
-app.post("/get_agent_credentials", async (req, res) => {
-  const a = await services.getAgent(req);
-  if (!a) {
-    res.status(401);
-    return res.send({ error: "Invalid agent credentials" });
+    console.log("Agent", agentId, "connected");
+    socket.join(`agent:${agentId}`);
+    socket.on("agent_msg", (data) => {
+      services.handleNewAgentMessage(socket, data.sessionId, data.content);
+    });
   }
-  return res.send({ id: a.id });
+  socket.server_io = io;
 });
 
-server.listen(5000, async () => {
-  console.log("Listening on port 5000");
+routes.createRoutes(app);
+
+server.listen(PORT, async () => {
+  console.log("Listening on port", PORT);
   try {
     await sequelize.authenticate();
     console.log("Connection has been established successfully.");

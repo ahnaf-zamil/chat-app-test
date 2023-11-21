@@ -5,15 +5,16 @@ const {
   MessagesModel,
   AgentsModel,
   AgentsSessionRelation,
+  sequelize,
 } = require("./model");
-const { getConfig } = require("./util");
-const { redirectMsgToAgent, assignAgentToSession } = require("./agent");
+const { getConfig, writeConfig } = require("./util");
+const { redirectMsgToAgent } = require("./agent");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_KEY,
 });
 
-const sessionTimeoutMiliseconds = 1000 * 60 * 5; // 5 mins
+const sessionTimeoutMiliseconds = 1000 * 60 * 30; // 5 mins
 
 const sendAIMessage = async (content, socket) => {
   const gptResp = await openai.chat.completions.create({
@@ -32,6 +33,8 @@ const sendAIMessage = async (content, socket) => {
   await newReplyMsg.save();
 
   socket.to(`session:${socket.sessionId}`).emit("agent_reply", resp);
+  // Doing this so agent can also see AI message
+  await redirectMsgToAgent(resp, socket, "ai");
 };
 
 const timeoutSession = async (sessionId) => {
@@ -45,11 +48,13 @@ const timeoutSession = async (sessionId) => {
       where: { sessionId: existingSession.id },
     });
     await existingSession.destroy();
+    return true;
   }
 };
 
 module.exports = {
-  handleNewMessage: async (content, socket) => {
+  // Session and message functions
+  handleNewUserMessage: async (content, socket) => {
     const sessionId = socket.sessionId;
 
     // Check to see if session is alive or not
@@ -75,22 +80,56 @@ module.exports = {
     });
     await newMsg.save();
 
-    // Send either AI message or let agent handle it
+    // Let AI reply to the message if live agent is disabled
     const conf = getConfig();
-    if (conf.redirect_to_live_agent) {
-      // Redirect to live agent
-      await redirectMsgToAgent(content, socket);
-    } else {
-      // Even if AI is responding to message, assign an agent to this session just to make sure they can respond back when online
-      await assignAgentToSession(socket);
+    // Even if live agent is disabled, still forward the message to an agent so they can respond later
+    // AI will only respond if the sendAIMessage function is run, but msg will be sent to agent regardless
+    await redirectMsgToAgent(content, socket);
+    if (!conf.redirect_to_live_agent) {
       await sendAIMessage(content, socket);
     }
 
     setTimeout(
       () =>
-        timeoutSession(socket.sessionId).then(() =>
-          socket.to(`session:${socket.sessionId}`).emit("session_timeout")
-        ),
+        timeoutSession(socket.sessionId).then((success) => {
+          if (success) {
+            socket.to(`session:${socket.sessionId}`).emit("session_timeout");
+          }
+        }),
+      sessionTimeoutMiliseconds
+    );
+  },
+  handleNewAgentMessage: async (socket, sessionId, content) => {
+    const existingSession = await SessionModel.findOne({
+      where: { id: sessionId },
+    });
+    if (!existingSession) {
+      // Invalid session
+      console.log(`Invalid session ${sessionId}`);
+      return;
+    }
+
+    await existingSession.update({
+      expiresAt: new Date().getTime() + sessionTimeoutMiliseconds,
+    }); // Reset session expiry
+
+    // Create msg and save in DB
+    const newMsg = MessagesModel.build({
+      content,
+      sessionId: sessionId,
+      createdAt: new Date().getTime(),
+      creator: "agent", // User
+    });
+    await newMsg.save();
+
+    socket.to(`session:${sessionId}`).emit("agent_reply", content);
+    setTimeout(
+      () =>
+        timeoutSession(sessionId).then((success) => {
+          if (success) {
+            socket.to(`session:${sessionId}`).emit("session_timeout");
+          }
+        }),
       sessionTimeoutMiliseconds
     );
   },
@@ -107,10 +146,37 @@ module.exports = {
     setTimeout(() => timeoutSession(newSession.id), sessionTimeoutMiliseconds);
     return newSession;
   },
+
+  // Settings functions
+  getSettings: async () => {
+    const conf = getConfig();
+    return conf;
+  },
+  setSettings: async (req) => {
+    writeConfig({ redirect_to_live_agent: req.body.redirect_to_live_agent });
+  },
+
+  // Agent functions
+  getAgentInbox: async (agentId) => {
+    const [res, _] = await sequelize.query(
+      `select * from public."Sessions" as s where s.id in (select a_s."sessionId" from public."AgentSessions" as a_s where a_s."agentId" = ?) ORDER BY s."createdAt" DESC;`,
+      { raw: true, replacements: [agentId] }
+    );
+    return res;
+  },
   getAgent: async (req) => {
     const agent = await AgentsModel.findOne({
       where: { username: req.body.username, password: req.body.password },
     });
     return agent;
+  },
+
+  // Message functions
+  getMsgForSession: async (session_id) => {
+    const msg = await MessagesModel.findAll({
+      where: { sessionId: session_id },
+      order: [["createdAt", "DESC"]],
+    });
+    return msg;
   },
 };

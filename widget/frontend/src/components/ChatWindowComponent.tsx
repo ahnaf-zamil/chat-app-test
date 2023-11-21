@@ -57,7 +57,7 @@ export const ChatWindowComponent: FC<Props> = ({
         ...oldmsg,
         { content: msgInput, isAgent: false },
       ]);
-      socket.emit("msg", msgInput);
+      socket.emit("user_msg", msgInput);
     }
   };
 

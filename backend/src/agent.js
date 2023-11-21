@@ -1,4 +1,4 @@
-const { AgentsModel, AgentsSessionRelation, sequelize } = require("./model");
+const { AgentsSessionRelation, sequelize, SessionModel } = require("./model");
 
 const assignAgentToSession = async (socket) => {
   // Check if an agent has been assigned to this session or not
@@ -14,7 +14,7 @@ const assignAgentToSession = async (socket) => {
       `select ag.id from public."Agents" as ag where ag.id not in (SELECT a_s."agentId" FROM public."AgentSessions" AS a_s GROUP BY  a_s."agentId" ORDER BY COUNT(*) ASC)`,
       { raw: true }
     );
-
+    console.log(res);
     if (res[0]) {
       // If an agent with no assigned sessions is found, assign this session to him
       assignedSession = await AgentsSessionRelation.build({
@@ -33,6 +33,14 @@ const assignAgentToSession = async (socket) => {
         agentId: designatedAgentId,
       }).save();
     }
+
+    // Now dispatch the session creation data to the agent
+    const sessionData = await SessionModel.findOne({
+      where: { id: socket.sessionId },
+    });
+    socket
+      .to(`agent:${assignedSession.agentId}`)
+      .emit("session_created", sessionData);
   }
 
   return assignedSession;
@@ -40,13 +48,17 @@ const assignAgentToSession = async (socket) => {
 
 module.exports = {
   assignAgentToSession,
-  redirectMsgToAgent: async (content, socket) => {
+  redirectMsgToAgent: async (content, socket, sender = "user") => {
     const assignedSession = await assignAgentToSession(socket);
 
     // Now that an agent has been assigned a session or an assigned session already exists, dispatch the message to him
     // If agent is online, he should get a popup. Else, when he loads it, it should be fetched
-    socket.server_io
-      .to(`agent:${assignedSession.agentId}`)
-      .emit("msg", { sessionId: assignedSession.sessionId, content });
+    socket.to(`agent:${assignedSession.agentId}`).emit("user_msg", {
+      sessionId: assignedSession.sessionId,
+      content,
+      creator: sender,
+    });
+
+    return assignedSession.agentId;
   },
 };

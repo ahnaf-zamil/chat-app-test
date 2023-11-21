@@ -1,5 +1,6 @@
 const { Sequelize, DataTypes } = require("sequelize");
 
+// I love Postgres
 const sequelize = new Sequelize(process.env.POSTGRES_URI);
 
 module.exports = {
