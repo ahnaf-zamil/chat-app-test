@@ -27,6 +27,23 @@ export const ChatBox: React.FC<ChatboxProps> = ({
   socket,
 }) => {
   const [inputMsg, setInputMsg] = useState<string>();
+  const [sessionClosed, setSessionClosed] = useState<boolean>(false);
+
+  useEffect(() => {
+    const intervalId = setInterval(async () => {
+      if (selectedSessionId) {
+        // Checking to see if session is open or not
+        const resp = await axios.get(
+          config.BACKEND_URL + "/get_session/" + selectedSessionId
+        );
+        if (!resp.data) {
+          setSessionClosed(true);
+          clearInterval(intervalId);
+        }
+      }
+    }, 10000);
+    return () => clearInterval(intervalId);
+  }, [selectedSessionId]);
 
   useEffect(() => {
     // Fetch data for newly selected inbox
@@ -70,7 +87,7 @@ export const ChatBox: React.FC<ChatboxProps> = ({
         <>
           <div
             id="chat-window"
-            className="h-[calc(100vh-94px-60px)] overflow-y-scroll max-h-[calc(100vh-94px-60px)] p-4 flex flex-col-reverse justify-start"
+            className="h-[calc(100vh-94px-90px)] overflow-y-scroll max-h-[calc(100vh-94px-90px)] p-4 flex flex-col-reverse justify-start"
           >
             {chatMsg[selectedSessionId] &&
               chatMsg[selectedSessionId].map((msg) => {
@@ -94,17 +111,23 @@ export const ChatBox: React.FC<ChatboxProps> = ({
                 );
               })}
           </div>
+          <p className="text-gray-500 text-center pb-2">
+            {sessionClosed ? "Session has been closed due to timeout" : "."}
+          </p>
           <form
             onSubmit={handleSubmit}
             className="bg-slate-300 h-[60px] flex p-2"
           >
             <input
               type="text"
-              className="bg-white flex-grow px-2"
+              className={`bg-${
+                sessionClosed ? "gray-200" : "white"
+              } flex-grow px-2`}
               placeholder="Type something..."
               value={inputMsg}
               onChange={(e) => setInputMsg(e.currentTarget.value)}
               required
+              disabled={sessionClosed}
             />
             <button className="bg-teal-600 text-white rounded-none">
               Send

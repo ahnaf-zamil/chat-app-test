@@ -9,6 +9,11 @@ module.exports = {
       return res.send({ id: s.id });
     });
 
+    app.get("/get_session/:sessionId", async (req, res) => {
+      const s = await services.getSession(req.params.sessionId);
+      return res.send(s);
+    });
+
     app.post("/get_agent_credentials", async (req, res) => {
       const a = await services.getAgent(req);
       if (!a) {

@@ -146,6 +146,12 @@ module.exports = {
     setTimeout(() => timeoutSession(newSession.id), sessionTimeoutMiliseconds);
     return newSession;
   },
+  getSession: async (sessionId) => {
+    const session = await SessionModel.findOne({
+      where: { id: sessionId },
+    });
+    return session;
+  },
 
   // Settings functions
   getSettings: async () => {

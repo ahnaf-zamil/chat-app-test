@@ -8,6 +8,15 @@
   </head>
   <body>
     <style>
+      #chat-container {
+        position: absolute;
+        right: 20px;
+        bottom: 20px;
+      }
+      #chat-container button {
+        display: block;
+        float: right;
+      }
       #chat-iframe {
         width: 400px;
         height: 600px;
@@ -21,7 +30,9 @@
         cursor: pointer;
       }
     </style>
-    <button onclick="toggleIframe()">Toggle Chat</button>
-    <div id="chat-widget"></div>
+    <div id="chat-container">
+      <div id="chat-widget"></div>
+      <button onclick="toggleIframe()">Toggle Chat</button>
+    </div>
   </body>
 </html>
